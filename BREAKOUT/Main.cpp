@@ -3,6 +3,11 @@
 #include <SFML/Audio.hpp>
 #include <vector>
 #include <math.h>
+#include <iostream>
+#include "Menu.h"
+#include "mysql.h"
+#include "HighScore.h"
+
 
 #define _CRTDBG_MAP_ALLOC
 #define _CRTDBG_MAP_ALLOC_NEW
@@ -78,49 +83,106 @@ Sound winSound;
 Sound loseSound;
 Sound BGMSound;
 
+
+
 vector<Brick*> bricks;
 
-void Initiate();
-void Reset();
-void Update();
-void RenderGame();
-void RenderMenu();
-void HandleInput();
-void loadLevel(int level);
-void handleWin();
-void drawBrick(Brick* brick);
-void handleWallHitting();
-void handlePaddleHitting();
-void handleBrickHitting();
-void handleGameOver();
-void handleKeyboardPaddleMovement();
+void gameInitiate();
+void menuInitiate();
+void gameReset();
+void gameUpdate();
+void gameRender();
+void menuRender();
+void gameHandleInput();
+void menuHandleInput();
+void highscoreHandleInput();
+void gameLoadLevel(int level);
+void gameHandleWin();
+void gameDrawBrick(Brick* brick);
+void gameHandleWallHitting();
+void gameHandlePaddleHitting();
+void gameHandleBrickHitting();
+void gameHandleGameOver();
+void gameHandleKeyboardPaddleMovement();
+void getHighScores();
 
 bool BallDir(RectangleShape rect, BallDirection direction);
 
+const enum GAME_STATE { MENU, GAME, HIGHSCORE, EXIT };
+GAME_STATE currentState = GAME_STATE::MENU;
+bool isGameInitialized = false;
+bool isHighScoreLoaded = false;
+
+string highscores[5];
 int main()
 {
+	
+	
 	_CrtSetDbgFlag(_CRTDBG_ALLOC_MEM_DF |
 		_CRTDBG_LEAK_CHECK_DF);
 	window.create(VideoMode(frameWidth, frameHeight), "BREAKOUT");
-	Initiate();
-	loadLevel(0);
-	while (window.isOpen())
-	{
-		deltaTime = gameClock.restart().asSeconds();
-		
-		HandleInput();
-		if (isPlaying && !gameover && !win)
-		{
-			Update();
-		}
-		//RenderGame();
-		
-		RenderMenu();
+
+	Menu menu(window.getSize().x, window.getSize().y);
+	getHighScores();
+	for (int i = 0; i < 5; i++) {
+		cout << highscores[i] << endl;
 	}
+		while (window.isOpen())
+		{
+			deltaTime = gameClock.restart().asSeconds();
+			
+
+			if (currentState == GAME_STATE::GAME) {
+				if (!isGameInitialized) {
+					gameInitiate();
+					gameLoadLevel(0);
+					isGameInitialized = true;
+				}
+				gameHandleInput();
+				if (isPlaying && !gameover && !win)
+				{
+					gameUpdate();
+				}
+				gameRender();
+
+				//RenderMenu();
+			}
+			if (currentState == GAME_STATE::MENU) {
+					window.clear(Color::Black);
+					textureBack.loadFromFile("back.png");
+					background.setSize(Vector2f(frameWidth, frameHeight));
+					background.setPosition(0, 0);
+					background.setTexture(&textureBack);
+					window.draw(background);
+					menu.draw(window);
+					window.display();
+					menuHandleInput();							
+			}
+			if (currentState == GAME_STATE::HIGHSCORE) {
+				
+					window.clear(Color::Black);
+					textureBack.loadFromFile("back.png");
+					background.setSize(Vector2f(frameWidth, frameHeight));
+					background.setPosition(0, 0);
+					background.setTexture(&textureBack);
+					window.draw(background);
+
+					HighScore highscore;
+					highscore.draw(window, highscores);
+					isHighScoreLoaded = true;
+					window.display();
+			
+				highscoreHandleInput();
+			}
+			if (currentState == GAME_STATE::EXIT) {
+				return EXIT_SUCCESS;
+			}
+		}
+	
 	return EXIT_SUCCESS;
 }
 
-void Initiate()
+void gameInitiate()
 {
 	font.loadFromFile("consola.ttf");
 	textureBall.loadFromFile("ball.png");
@@ -162,14 +224,24 @@ void Initiate()
 	scoreText.setString("Wynik:" + to_string(score));
 }
 
-void Reset()
+void menuInitiate() {
+	window.clear(Color::Black);
+	textureBack.loadFromFile("back.png");
+	background.setSize(Vector2f(frameWidth, frameHeight));
+	background.setPosition(0, 0);
+	background.setTexture(&textureBack);
+	window.draw(background);
+	window.display();
+}
+
+void gameReset()
 {
 	Vector2f paddlePosition = paddle.picture.getPosition();
 	ball.setPosition(paddlePosition.x, paddlePosition.y - paddle.picture.getSize().y / 2 - ball.picture.getRadius());
 	ball.angle = (270 + rand() % 60 - 30) * 2 * pi / 360;
 }
 
-void Update()
+void gameUpdate()
 {
 	if (ball.angle < 0)
 	{
@@ -179,21 +251,21 @@ void Update()
 
 	float factor = ball.speed * deltaTime;
 	ball.picture.move(cos(ball.angle) * factor, sin(ball.angle) * factor);
-	handleWallHitting();
-	handlePaddleHitting();
-	handleBrickHitting();
-	handleGameOver();
-	handleWin();
+	gameHandleWallHitting();
+	gameHandlePaddleHitting();
+	gameHandleBrickHitting();
+	gameHandleGameOver();
+	gameHandleWin();
 	lifeText.setString("HP:" + to_string(life));
 	scoreText.setString("Wynik:" + to_string(score));
 }
 
-void RenderMenu() {
+void menuRender() {
 	window.clear(Color::Black);
 	window.draw(background);
 	window.display();
 }
-void RenderGame()
+void gameRender()
 {
 	window.clear(Color::Black);
 	window.draw(background);
@@ -201,7 +273,7 @@ void RenderGame()
 	window.draw(ball.picture);
 	for (Brick* brick : bricks)
 	{
-		drawBrick(brick);
+		gameDrawBrick(brick);
 	}
 	window.draw(lifeText);
 	window.draw(gameoverText);
@@ -209,7 +281,56 @@ void RenderGame()
 	window.display();
 }
 
-void HandleInput()
+void highscoreHandleInput() {
+	Event event;
+	while (window.pollEvent(event)) {
+		if (Keyboard::isKeyPressed(Keyboard::Escape)) {
+			currentState = GAME_STATE::MENU;
+		}
+	}
+}
+void menuHandleInput() {
+	Event event;
+	while (window.pollEvent(event)) {
+		if (Keyboard::isKeyPressed(Keyboard::Num1))
+		{
+			currentState = GAME_STATE::GAME;
+		}
+		if (Keyboard::isKeyPressed(Keyboard::Num2)) {
+			currentState = GAME_STATE::HIGHSCORE;
+		}
+		if (Keyboard::isKeyPressed(Keyboard::Num3)) {
+			currentState = GAME_STATE::EXIT;
+		}
+	}
+}
+
+void getHighScores() {
+
+	MYSQL* conn;
+	MYSQL_ROW row;
+	MYSQL_RES* res;
+	conn = mysql_init(0);
+	conn = mysql_real_connect(conn, "localhost", "root", "", "cpp", 3306, NULL, 0);
+
+	if (conn) {
+		puts("success");
+
+		string query = "SELECT * FROM cpp.test ORDER BY test DESC LIMIT 5";
+		const char* q = query.c_str();
+		int qstate = mysql_query(conn, q);
+		if (!qstate) {
+			res = mysql_store_result(conn);
+			int i = 0;
+			while (row = mysql_fetch_row(res)) {
+				highscores[i] = row[1];
+				i++;
+			}
+		}
+	}
+}
+
+void gameHandleInput()
 {
 	Event event;
 	while (window.pollEvent(event))
@@ -237,36 +358,34 @@ void HandleInput()
 		}
 	}
 
-	handleKeyboardPaddleMovement();
+	gameHandleKeyboardPaddleMovement();
 
-	if (Keyboard::isKeyPressed(Keyboard::Return))
-	{
+	
 		if (gameover)
 		{
 			life = 3;
 			gameover = false;
 			score = 0;
 			combo = 0;
-			loadLevel(level);
+			gameLoadLevel(level);
 			BGMSound.play();
 		}
 		else if (win)
 		{
 			win = false;
 			level = (level + 1) % 3;
-			loadLevel(level);
+			gameLoadLevel(level);
 			BGMSound.play();
 		}
-	}
+	
 }
 
 
-void loadLevel(int level)
+void gameLoadLevel(int level)
 {
 	isPlaying = false;
 	gameover = false;
 	gameoverText.setString("");
-
 	paddle.initiate();
 	paddle.setSize(150, 35);
 	paddle.setPosition(frameWidth / 2, frameHeight - paddle.picture.getSize().y);
@@ -535,7 +654,7 @@ bool BallDir(RectangleShape rect, BallDirection direction)
 	}
 }
 
-void handleWallHitting()
+void gameHandleWallHitting()
 {
 	CircleShape ballPicture = ball.picture;
 	Vector2f position = ballPicture.getPosition();
@@ -545,7 +664,7 @@ void handleWallHitting()
 		isPlaying = false;
 		life--;
 		dieSound.play();
-		Reset();
+		gameReset();
 	}
 	else if (position.x - radius < 50.f)
 	{
@@ -567,7 +686,7 @@ void handleWallHitting()
 	}
 }
 
-void handleWin() {
+void gameHandleWin() {
 	int count = 0;
 	for (Brick* brick : bricks)
 	{
@@ -585,7 +704,7 @@ void handleWin() {
 	}
 }
 
-void drawBrick(Brick* brick) {
+void gameDrawBrick(Brick* brick) {
 
 	if (!brick->enable)
 	{
@@ -609,7 +728,7 @@ void drawBrick(Brick* brick) {
 	window.draw(brick->picture);
 }
 
-void handlePaddleHitting() {
+void gameHandlePaddleHitting() {
 	if (!BallDir(paddle.picture, BallDirection::BOTTOM))
 	{
 		return;
@@ -649,7 +768,7 @@ void handlePaddleHitting() {
 	hitPaddleSound.play();
 }
 
-void handleBrickHitting() {
+void gameHandleBrickHitting() {
 	for (Brick* brick : bricks)
 	{
 		if (!brick->enable) {
@@ -732,17 +851,31 @@ void handleBrickHitting() {
 	}
 }
 
-void handleGameOver() {
+void gameHandleGameOver() {
 	if (life <= 0)
 	{
 		gameover = true;
 		BGMSound.pause();
 		loseSound.play();
+
+		MYSQL* conn;
+		MYSQL_ROW row;
+		MYSQL_RES* res;
+		conn = mysql_init(0);
+		conn = mysql_real_connect(conn, "localhost", "root", "", "cpp", 3306, NULL, 0);
+
+		string query1 = "INSERT INTO cpp.test (`id`, `test`) VALUES (NULL, '" + std::to_string(score) +"')";
+		const char* d = query1.c_str();
+		int state = mysql_query(conn, d);
+
+		getHighScores();
+
+		currentState = GAME_STATE::MENU;
 		gameoverText.setString("Przegrana! Enter - nowa gra");
 	}
 }
 
-void handleKeyboardPaddleMovement() {
+void gameHandleKeyboardPaddleMovement() {
 	if (gameover) {
 		return;
 	}
